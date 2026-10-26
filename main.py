@@ -217,4 +217,25 @@ async def search_handler(message: types.Message):
     for i, c in enumerate(page, 1):
         name = html.escape(c['name'])
         city = html.escape(c['city'] if c['city'] else 'Kiritilmagan')
-        address = html.escape(c['address'] if c['address'] else 'Kiritil
+        address = html.escape(c['address'] if c['address'] else 'Kiritilmagan')
+        specialty = html.escape(c['specialty'] if c['specialty'] else 'Kiritilmagan')
+        phone_html = format_phone(c['phone'])
+        
+        text += (
+            f"{i}. 🏢 <b>{name}</b>\n"
+            f"📍 Shahar: {city}\n"
+            f"🏛 Manzil: {address}\n"
+            f"🛠 Mutaxassisligi: {specialty}\n"
+            f"📞 Tel: {phone_html}\n\n"
+        )
+        
+    await message.answer(text, reply_markup=get_keyboard(), parse_mode="HTML")
+
+async def main():
+    logging.basicConfig(level=logging.INFO)
+    print("Bot ishga tushmoqda...")
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())

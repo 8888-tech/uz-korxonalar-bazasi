@@ -6,6 +6,7 @@ import io
 import re
 import html
 import aiohttp
+from aiohttp import web
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import CommandStart
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
@@ -15,10 +16,25 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 SPREADSHEET_ID = "1NCrhKX8fafJki5hPEMqMrpotiY6pM5fDYImvBfRE2ts"
+USERS_FILE = "users.txt"
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
+# --- Foydalanuvchilarni saqlash va o'qish funksiyalari ---
+def load_users():
+    if not os.path.exists(USERS_FILE):
+        return set()
+    with open(USERS_FILE, "r") as f:
+        return set(line.strip() for line in f if line.strip())
+
+def save_user(user_id):
+    users = load_users()
+    if str(user_id) not in users:
+        with open(USERS_FILE, "a") as f:
+            f.write(f"{user_id}\n")
+
+# --- Yordamchi funksiyalar ---
 def normalize(text):
     if not text:
         return ""
@@ -90,6 +106,7 @@ def get_keyboard():
 
 @dp.message(CommandStart())
 async def start_cmd(message: types.Message):
+    save_user(message.chat.id) # Foydalanuvchini bazaga saqlaymiz
     await message.answer(
         "👋 <b>O‘zbekiston Korxonalar Bazasiga xush kelibsiz!</b>\n\n"
         "Qidiruv uchun korxona nomi, shahar yoki mutaxassislikni yozing yoki tugmalardan birini tanlang:",
@@ -105,6 +122,36 @@ async def help_cmd(message: types.Message):
         "• Hudud tugmalaridan birini bosing.\n"
         "• Telefon raqamini kiriting.",
         reply_markup=get_keyboard(),
+        parse_mode="HTML"
+    )
+
+# --- Ommaviy xabar yuborish (Rassilka) buyrug'i ---
+@dp.message(F.text.startswith("/broadcast "))
+async def broadcast_cmd(message: types.Message):
+    save_user(message.chat.id)
+    text_to_send = message.text.replace("/broadcast ", "", 1).strip()
+    if not text_to_send:
+        await message.answer("⚠️ Xabar matnini kiriting: <code>/broadcast Matn</code>", parse_mode="HTML")
+        return
+
+    users = load_users()
+    sent = 0
+    blocked = 0
+
+    status_msg = await message.answer(f"⏳ Xabar yuborish boshlandi. Jami foydalanuvchilar: {len(users)} ta")
+
+    for user_id in users:
+        try:
+            await bot.send_message(chat_id=int(user_id), text=text_to_send, parse_mode="HTML")
+            sent += 1
+            await asyncio.sleep(0.05) # Telegram API chekloviga tushmaslik uchun
+        except Exception:
+            blocked += 1
+
+    await status_msg.edit_text(
+        f"✅ <b>Xabar yuborish yakunlandi!</b>\n\n"
+        f"• Muvaffaqiyatli yuborildi: {sent} ta\n"
+        f"• Botni bloklaganlar: {blocked} ta",
         parse_mode="HTML"
     )
 
@@ -186,6 +233,7 @@ def generate_search_text(found, page, total_pages, raw_text):
 
 @dp.message(F.text == "📋 Barcha korxonalar ro‘yxati")
 async def all_enterprises(message: types.Message):
+    save_user(message.chat.id)
     records = await fetch_sheet_data()
     if not records:
         await message.answer("Bazada korxonalar topilmadi.", reply_markup=get_keyboard())
@@ -237,6 +285,7 @@ async def process_all_pagination(callback: types.CallbackQuery):
 
 @dp.message()
 async def search_handler(message: types.Message):
+    save_user(message.chat.id)
     raw_text = message.text
     query = normalize(raw_text.replace("📍", "").replace("📋", ""))
     records = await fetch_sheet_data()
@@ -279,11 +328,26 @@ async def process_search_pagination(callback: types.CallbackQuery):
         pass
     await callback.answer()
 
+# --- Render port binding uchun veb-server ---
+async def handle_ping(request):
+    return web.Response(text="Bot is running successfully!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
 async def main():
     logging.basicConfig(level=logging.INFO)
     print("Bot ishga tushmoqda...")
     await bot.delete_webhook(drop_pending_updates=True)
+    await start_web_server()
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
+EOF

@@ -7,7 +7,7 @@ import re
 import aiohttp
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import CommandStart
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -24,19 +24,22 @@ def normalize(text):
     return str(text).lower().replace("‘", "'").replace("’", "'").replace("`", "'").replace("´", "'").strip()
 
 def format_phone(phone_raw):
-    """Telefon raqamini bosiladigan HTML havolaga aylantiradi."""
+    """Telefon raqamini O'zbekiston formati bo'yicha tozalab, bosiladigan HTML havolaga aylantiradi."""
     if not phone_raw or not str(phone_raw).strip():
         return "Kiritilmagan"
     
     phone_str = str(phone_raw).strip()
-    # Faqat raqamlar va '+' belgisini ajratib olamiz (masalan: +998 90 123-45-67 -> +998901234567)
-    clean_digits = re.sub(r"[^\d+]", "", phone_str)
+    clean_digits = re.sub(r"[^\d]", "", phone_str)
     
     if not clean_digits:
         return phone_str
 
-    # Agar '+' belgisi bo'lmasa, uni qo'shib qo'yamiz (masalan: 998901234567 -> +998901234567)
-    if not clean_digits.startswith("+"):
+    # O'zbekiston raqamlari uchun +998 qo'shish va to'g'rilash
+    if len(clean_digits) == 9:
+        clean_digits = "+998" + clean_digits
+    elif len(clean_digits) == 12 and clean_digits.startswith("998"):
+        clean_digits = "+" + clean_digits
+    elif not clean_digits.startswith("+"):
         clean_digits = "+" + clean_digits
         
     return f'<a href="tel:{clean_digits}">{phone_str}</a>'
@@ -105,6 +108,19 @@ async def help_cmd(message: types.Message):
         parse_mode="HTML"
     )
 
+ITEMS_PER_PAGE = 10
+
+def get_all_pagination_keyboard(page, total_pages):
+    buttons = []
+    row = []
+    if page > 1:
+        row.append(InlineKeyboardButton(text="⬅️ Orqaga", callback_data=f"all_page:{page-1}"))
+    row.append(InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="none"))
+    if page < total_pages:
+        row.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"all_page:{page+1}"))
+    buttons.append(row)
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 @dp.message(F.text == "📋 Barcha korxonalar ro‘yxati")
 async def all_enterprises(message: types.Message):
     records = await fetch_sheet_data()
@@ -112,13 +128,47 @@ async def all_enterprises(message: types.Message):
         await message.answer("Bazada korxonalar topilmadi.", reply_markup=get_keyboard())
         return
     
-    page = records[:10]
-    text = f"📋 <b>Bazada jami {len(records)} ta korxona bor:</b>\n\n"
-    for i, c in enumerate(page, 1):
+    total_pages = (len(records) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+    page = 1
+    start_idx = (page - 1) * ITEMS_PER_PAGE
+    end_idx = start_idx + ITEMS_PER_PAGE
+    page_records = records[start_idx:end_idx]
+
+    text = f"📋 <b>Bazada jami {len(records)} ta korxona bor (Sahifa {page}/{total_pages}):</b>\n\n"
+    for i, c in enumerate(page_records, start=start_idx + 1):
         phone_html = format_phone(c['phone'])
         text += f"{i}. <b>{c['name']}</b>\n📞 {phone_html}\n\n"
     
-    await message.answer(text, reply_markup=get_keyboard(), parse_mode="HTML")
+    await message.answer(text, reply_markup=get_all_pagination_keyboard(page, total_pages), parse_mode="HTML")
+
+@dp.callback_query(F.data.startswith("all_page:"))
+async def process_all_pagination(callback: types.CallbackQuery):
+    page = int(callback.data.split(":")[1])
+    records = await fetch_sheet_data()
+    if not records:
+        await callback.answer("Ma'lumot topilmadi.")
+        return
+
+    total_pages = (len(records) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+    if page < 1:
+        page = 1
+    elif page > total_pages:
+        page = total_pages
+
+    start_idx = (page - 1) * ITEMS_PER_PAGE
+    end_idx = start_idx + ITEMS_PER_PAGE
+    page_records = records[start_idx:end_idx]
+
+    text = f"📋 <b>Bazada jami {len(records)} ta korxona bor (Sahifa {page}/{total_pages}):</b>\n\n"
+    for i, c in enumerate(page_records, start=start_idx + 1):
+        phone_html = format_phone(c['phone'])
+        text += f"{i}. <b>{c['name']}</b>\n📞 {phone_html}\n\n"
+
+    try:
+        await callback.message.edit_text(text, reply_markup=get_all_pagination_keyboard(page, total_pages), parse_mode="HTML")
+    except Exception:
+        pass
+    await callback.answer()
 
 @dp.message()
 async def search_handler(message: types.Message):
@@ -134,7 +184,6 @@ async def search_handler(message: types.Message):
     
     found = []
     
-    # Hudud tugmalari bo'yicha qidiruv
     if query in regions:
         for row in records:
             row_city = normalize(row['city'])
@@ -152,12 +201,11 @@ async def search_handler(message: types.Message):
                 if query_base in row_city_base:
                     found.append(row)
     else:
-        # Matnli umumiy qidiruv
         for row in records:
             full_text = f"{normalize(row['name'])} {normalize(row['city'])} {normalize(row['address'])} {normalize(row['specialty'])} {normalize(row['phone'])}"
             if query in full_text:
                 found.append(row)
-            
+                
     if not found:
         await message.answer(f"🔍 <b>\"{raw_text}\" bo‘yicha hech narsa topilmadi.</b>", reply_markup=get_keyboard(), parse_mode="HTML")
         return

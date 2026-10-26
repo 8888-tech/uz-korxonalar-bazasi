@@ -23,31 +23,25 @@ def normalize(text):
     if not text:
         return ""
     return str(text).lower().replace("‘", "'").replace("’", "'").replace("`", "'").replace("´", "'").strip()
-
 def format_phone(phone_raw):
-    """Telefon raqamini tozalaydi va har qanday holatda bosiladigan HTML havolaga aylantiradi."""
+    """Telefon raqamini tozalaydi va Telegram o'zi avtomatik bosiladigan qilishi uchun +998 formatida qaytaradi."""
     if not phone_raw or not str(phone_raw).strip():
         return "Kiritilmagan"
     
     phone_str = str(phone_raw).strip()
-    
-    # Agar ustunda ikkita raqam bo'lsa (masalan, vergul yoki slesh bilan ajratilgan), birinchisini olamiz
     first_phone = re.split(r'[,;/|\s]{2,}', phone_str)[0]
     clean_digits = re.sub(r"[^\d]", "", first_phone)
     
     if not clean_digits:
         return html.escape(phone_str)
 
-    # Oxirgi 9 ta raqamni ajratib olamiz (O'zbekiston raqami uchun)
     if len(clean_digits) >= 9:
         main_9 = clean_digits[-9:]
         display_num = f"+998 {main_9[0:2]} {main_9[2:5]} {main_9[5:7]} {main_9[7:9]}"
-        tel_num = "+998" + main_9
     else:
-        display_num = phone_str
-        tel_num = "+" + clean_digits if not clean_digits.startswith("+") else clean_digits
+        display_num = "+" + clean_digits if not clean_digits.startswith("+") else clean_digits
 
-    return f'<a href="tel:{tel_num}">{html.escape(display_num)}</a>'
+    return html.escape(display_num)
 
 async def fetch_sheet_data():
     url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv"

@@ -18,8 +18,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 SPREADSHEET_ID = "1NCrhKX8fafJki5hPEMqMrpotiY6pM5fDYImvBfRE2ts"
 USERS_FILE = "users.txt"
 
-# ⚠️ O‘ZINGIZNING TELEGRAM ID RAQAMingizni shu yerga yozing (masalan: 123456789)
-ADMIN_ID = 917491857  # <--- Shu yerga o'z ID raqamingizni yozing!
+ADMIN_ID = 917491857  # Sizning ID raqamingiz
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -44,7 +43,7 @@ def normalize(text):
 def format_phone(phone_raw):
     if not phone_raw or not str(phone_raw).strip():
         return "Kiritilmagan"
-    
+        
     phone_str = str(phone_raw).strip()
     first_phone = re.split(r'[,;/|\s]{2,}', phone_str)[0]
     clean_digits = re.sub(r"[^\d]", "", first_phone)
@@ -125,13 +124,10 @@ async def help_cmd(message: types.Message):
         parse_mode="HTML"
     )
 
-# --- Faqat Admin (Siz) uchun broadcast buyrug'i ---
 @dp.message(F.text.startswith("/broadcast"))
 async def broadcast_cmd(message: types.Message):
-    # Agar yozgan odamning ID raqami siznikiga teng bo'lmasa
     if message.from_user.id != ADMIN_ID:
-        # Boshqalar yozsa buni oddiy qidiruv deb yuboradi yoki javob bermaydi
-        return 
+        return  
 
     text = message.text.strip()
     if text == "/broadcast":
@@ -170,10 +166,10 @@ def get_all_pagination_keyboard(page, total_pages):
     buttons = []
     row = []
     if page > 1:
-        row.append(InlineKeyboardButton(text="⬅️ Orqaga", callback_data=f"all_page:{page-1}"))
+        row.append(InlineKeyboardButton(text="⬅ Orqaga", callback_data=f"all_page:{page-1}"))
     row.append(InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="none"))
     if page < total_pages:
-        row.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"all_page:{page+1}"))
+        row.append(InlineKeyboardButton(text="Keyingi ➡", callback_data=f"all_page:{page+1}"))
     buttons.append(row)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -181,17 +177,17 @@ def get_search_pagination_keyboard(query, page, total_pages):
     buttons = []
     row = []
     if page > 1:
-        row.append(InlineKeyboardButton(text="⬅️ Orqaga", callback_data=f"srch:{query}:{page-1}"))
+        row.append(InlineKeyboardButton(text="⬅ Orqaga", callback_data=f"srch:{query}:{page-1}"))
     row.append(InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="none"))
     if page < total_pages:
-        row.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"srch:{query}:{page+1}"))
+        row.append(InlineKeyboardButton(text="Keyingi ➡", callback_data=f"srch:{query}:{page+1}"))
     buttons.append(row)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def filter_records(records, query):
     regions = [
-        "toshkent shahri", "toshkent viloyati", "andijon", "farg'ona", 
-        "namangan", "samarqand", "buxoro", "xorazm", "qashqadaryo", 
+        "toshkent shahri", "toshkent viloyati", "andijon", "farg'ona",  
+        "namangan", "samarqand", "buxoro", "xorazm", "qashqadaryo",  
         "surxondaryo", "jizzax", "sirdaryo", "navoiy", "qoraqalpog'iston"
     ]
     found = []
@@ -358,4 +354,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-EOF

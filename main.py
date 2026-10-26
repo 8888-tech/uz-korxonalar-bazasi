@@ -25,23 +25,24 @@ def normalize(text):
     return str(text).lower().replace("‘", "'").replace("’", "'").replace("`", "'").replace("´", "'").strip()
 
 def format_phone(phone_raw):
-    """Telefon raqamini tozalaydi, +998 formatiga keltirib bosiladigan HTML havolaga aylantiradi."""
+    """Telefon raqamini tozalaydi va har qanday holatda bosiladigan HTML havolaga aylantiradi."""
     if not phone_raw or not str(phone_raw).strip():
         return "Kiritilmagan"
     
     phone_str = str(phone_raw).strip()
-    clean_digits = re.sub(r"[^\d]", "", phone_str)
+    
+    # Agar ustunda ikkita raqam bo'lsa (masalan, vergul yoki slesh bilan ajratilgan), birinchisini olamiz
+    first_phone = re.split(r'[,;/|\s]{2,}', phone_str)[0]
+    clean_digits = re.sub(r"[^\d]", "", first_phone)
     
     if not clean_digits:
         return html.escape(phone_str)
 
-    # O'zbekiston raqamlarini to'g'rilash
-    if len(clean_digits) == 9:
-        display_num = f"+998 {clean_digits[0:2]} {clean_digits[2:5]} {clean_digits[5:7]} {clean_digits[7:9]}"
-        tel_num = "+998" + clean_digits
-    elif len(clean_digits) == 12 and clean_digits.startswith("998"):
-        display_num = f"+998 {clean_digits[3:5]} {clean_digits[5:8]} {clean_digits[8:10]} {clean_digits[10:12]}"
-        tel_num = "+" + clean_digits
+    # Oxirgi 9 ta raqamni ajratib olamiz (O'zbekiston raqami uchun)
+    if len(clean_digits) >= 9:
+        main_9 = clean_digits[-9:]
+        display_num = f"+998 {main_9[0:2]} {main_9[2:5]} {main_9[5:7]} {main_9[7:9]}"
+        tel_num = "+998" + main_9
     else:
         display_num = phone_str
         tel_num = "+" + clean_digits if not clean_digits.startswith("+") else clean_digits

@@ -3,6 +3,7 @@ import asyncio
 import logging
 import csv
 import io
+import re
 import aiohttp
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import CommandStart
@@ -21,6 +22,24 @@ def normalize(text):
     if not text:
         return ""
     return str(text).lower().replace("‘", "'").replace("’", "'").replace("`", "'").replace("´", "'").strip()
+
+def format_phone(phone_raw):
+    """Telefon raqamini bosiladigan HTML havolaga aylantiradi."""
+    if not phone_raw or not str(phone_raw).strip():
+        return "Kiritilmagan"
+    
+    phone_str = str(phone_raw).strip()
+    # Faqat raqamlar va '+' belgisini ajratib olamiz (masalan: +998 90 123-45-67 -> +998901234567)
+    clean_digits = re.sub(r"[^\d+]", "", phone_str)
+    
+    if not clean_digits:
+        return phone_str
+
+    # Agar '+' belgisi bo'lmasa, uni qo'shib qo'yamiz (masalan: 998901234567 -> +998901234567)
+    if not clean_digits.startswith("+"):
+        clean_digits = "+" + clean_digits
+        
+    return f'<a href="tel:{clean_digits}">{phone_str}</a>'
 
 async def fetch_sheet_data():
     url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv"
@@ -61,7 +80,7 @@ def get_keyboard():
             [KeyboardButton(text="📍 Samarqand"), KeyboardButton(text="📍 Buxoro"), KeyboardButton(text="📍 Xorazm")],
             [KeyboardButton(text="📍 Qashqadaryo"), KeyboardButton(text="📍 Surxondaryo"), KeyboardButton(text="📍 Jizzax")],
             [KeyboardButton(text="📍 Sirdaryo"), KeyboardButton(text="📍 Navoiy"), KeyboardButton(text="📍 Qoraqalpog‘iston")],
-            [KeyboardButton(text="ℹ️ Yordam")]
+            [KeyboardButton(text="ℹ Yordam")]
         ],
         resize_keyboard=True
     )
@@ -75,10 +94,10 @@ async def start_cmd(message: types.Message):
         parse_mode="HTML"
     )
 
-@dp.message(F.text == "ℹ️ Yordam")
+@dp.message(F.text == "ℹ Yordam")
 async def help_cmd(message: types.Message):
     await message.answer(
-        "🔎 <b>Qidiruv qo‘llanmasi:</b>\n\n"
+        "🔍 <b>Qidiruv qo‘llanmasi:</b>\n\n"
         "• Korxona nomini yozib yuboring (masalan: <i>Hokimlik</i>).\n"
         "• Hudud tugmalaridan birini bosing.\n"
         "• Telefon raqamini kiriting.",
@@ -96,14 +115,15 @@ async def all_enterprises(message: types.Message):
     page = records[:10]
     text = f"📋 <b>Bazada jami {len(records)} ta korxona bor:</b>\n\n"
     for i, c in enumerate(page, 1):
-        text += f"{i}. <b>{c['name']}</b>\n📞 {c['phone'] if c['phone'] else 'Noma‘lum'}\n\n"
+        phone_html = format_phone(c['phone'])
+        text += f"{i}. <b>{c['name']}</b>\n📞 {phone_html}\n\n"
     
     await message.answer(text, reply_markup=get_keyboard(), parse_mode="HTML")
 
 @dp.message()
 async def search_handler(message: types.Message):
     raw_text = message.text
-    query = normalize(raw_text.replace("📍", ""))
+    query = normalize(raw_text.replace("📍", "").replace("📋", ""))
     records = await fetch_sheet_data()
     
     regions = [
@@ -114,7 +134,7 @@ async def search_handler(message: types.Message):
     
     found = []
     
-    # Agar menyudagi hudud tugmalari bosilgan bo'lsa -> FAQAT C qator (city) bo'yicha tekshiramiz
+    # Hudud tugmalari bo'yicha qidiruv
     if query in regions:
         for row in records:
             row_city = normalize(row['city'])
@@ -132,7 +152,7 @@ async def search_handler(message: types.Message):
                 if query_base in row_city_base:
                     found.append(row)
     else:
-        # Oddiy matnli qidiruv (korxona nomi, mutaxassisligi, manzili va boshqalar bo'yicha)
+        # Matnli umumiy qidiruv
         for row in records:
             full_text = f"{normalize(row['name'])} {normalize(row['city'])} {normalize(row['address'])} {normalize(row['specialty'])} {normalize(row['phone'])}"
             if query in full_text:
@@ -145,12 +165,13 @@ async def search_handler(message: types.Message):
     page = found[:10]
     text = f"🔍 <b>Topilgan korxonalar ({len(found)} ta):</b>\n\n"
     for i, c in enumerate(page, 1):
+        phone_html = format_phone(c['phone'])
         text += (
             f"{i}. 🏢 <b>{c['name']}</b>\n"
             f"📍 Shahar: {c['city'] if c['city'] else 'Kiritilmagan'}\n"
             f"🏛 Manzil: {c['address'] if c['address'] else 'Kiritilmagan'}\n"
             f"🛠 Mutaxassisligi: {c['specialty'] if c['specialty'] else 'Kiritilmagan'}\n"
-            f"📞 Tel: {c['phone'] if c['phone'] else 'Kiritilmagan'}\n\n"
+            f"📞 Tel: {phone_html}\n\n"
         )
         
     await message.answer(text, reply_markup=get_keyboard(), parse_mode="HTML")

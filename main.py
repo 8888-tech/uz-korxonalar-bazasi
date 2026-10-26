@@ -19,9 +19,6 @@ SPREADSHEET_ID = "1NCrhKX8fafJki5hPEMqMrpotiY6pM5fDYImvBfRE2ts"
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Qidiruv natijalarini vaqtinchalik saqlash uchun kesh
-SEARCH_CACHE = {}
-
 def normalize(text):
     if not text:
         return ""
@@ -124,16 +121,46 @@ def get_all_pagination_keyboard(page, total_pages):
     buttons.append(row)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_search_pagination_keyboard(page, total_pages):
+def get_search_pagination_keyboard(query, page, total_pages):
     buttons = []
     row = []
     if page > 1:
-        row.append(InlineKeyboardButton(text="⬅️ Orqaga", callback_data=f"search_page:{page-1}"))
+        row.append(InlineKeyboardButton(text="⬅️ Orqaga", callback_data=f"srch:{query}:{page-1}"))
     row.append(InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="none"))
     if page < total_pages:
-        row.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"search_page:{page+1}"))
+        row.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"srch:{query}:{page+1}"))
     buttons.append(row)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def filter_records(records, query):
+    regions = [
+        "toshkent shahri", "toshkent viloyati", "andijon", "farg'ona", 
+        "namangan", "samarqand", "buxoro", "xorazm", "qashqadaryo", 
+        "surxondaryo", "jizzax", "sirdaryo", "navoiy", "qoraqalpog'iston"
+    ]
+    found = []
+    
+    if query in regions:
+        for row in records:
+            row_city = normalize(row['city'])
+            if "toshkent" in query:
+                if "toshkent shahri" in query:
+                    if "toshkent" in row_city and ("shahar" in row_city or "shahri" in row_city or "shaxar" in row_city):
+                        found.append(row)
+                elif "toshkent viloyati" in query:
+                    if "toshkent" in row_city and "viloyat" in row_city:
+                        found.append(row)
+            else:
+                query_base = query.replace("'", "")
+                row_city_base = row_city.replace("'", "")
+                if query_base in row_city_base:
+                    found.append(row)
+    else:
+        for row in records:
+            full_text = f"{normalize(row['name'])} {normalize(row['city'])} {normalize(row['address'])} {normalize(row['specialty'])} {normalize(row['phone'])}"
+            if query in full_text:
+                found.append(row)
+    return found
 
 def generate_search_text(found, page, total_pages, raw_text):
     start_idx = (page - 1) * ITEMS_PER_PAGE
@@ -214,70 +241,40 @@ async def search_handler(message: types.Message):
     query = normalize(raw_text.replace("📍", "").replace("📋", ""))
     records = await fetch_sheet_data()
     
-    regions = [
-        "toshkent shahri", "toshkent viloyati", "andijon", "farg'ona", 
-        "namangan", "samarqand", "buxoro", "xorazm", "qashqadaryo", 
-        "surxondaryo", "jizzax", "sirdaryo", "navoiy", "qoraqalpog'iston"
-    ]
-    
-    found = []
-    
-    if query in regions:
-        for row in records:
-            row_city = normalize(row['city'])
-            
-            if "toshkent" in query:
-                if "toshkent shahri" in query:
-                    if "toshkent" in row_city and ("shahar" in row_city or "shahri" in row_city or "shaxar" in row_city):
-                        found.append(row)
-                elif "toshkent viloyati" in query:
-                    if "toshkent" in row_city and "viloyat" in row_city:
-                        found.append(row)
-            else:
-                query_base = query.replace("'", "")
-                row_city_base = row_city.replace("'", "")
-                if query_base in row_city_base:
-                    found.append(row)
-    else:
-        for row in records:
-            full_text = f"{normalize(row['name'])} {normalize(row['city'])} {normalize(row['address'])} {normalize(row['specialty'])} {normalize(row['phone'])}"
-            if query in full_text:
-                found.append(row)
-                
+    found = filter_records(records, query)
     if not found:
         await message.answer(f"🔍 <b>\"{html.escape(raw_text)}\" bo‘yicha hech narsa topilmadi.</b>", reply_markup=get_keyboard(), parse_mode="HTML")
         return
         
-    user_id = message.from_user.id
-    SEARCH_CACHE[user_id] = (found, raw_text)
-    
     total_pages = (len(found) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
     page = 1
     
     text = generate_search_text(found, page, total_pages, raw_text)
-    await message.answer(text, reply_markup=get_search_pagination_keyboard(page, total_pages), parse_mode="HTML")
+    await message.answer(text, reply_markup=get_search_pagination_keyboard(query, page, total_pages), parse_mode="HTML")
 
-@dp.callback_query(F.data.startswith("search_page:"))
+@dp.callback_query(F.data.startswith("srch:"))
 async def process_search_pagination(callback: types.CallbackQuery):
-    page = int(callback.data.split(":")[1])
-    user_id = callback.from_user.id
+    parts = callback.data.split(":")
+    query = parts[1]
+    page = int(parts[2])
     
-    if user_id not in SEARCH_CACHE:
-        await callback.answer("Ma'lumot eskirgan, qaytadan qidirib ko'ring.", show_alert=True)
+    records = await fetch_sheet_data()
+    found = filter_records(records, query)
+    
+    if not found:
+        await callback.answer("Ma'lumot topilmadi.", show_alert=True)
         return
         
-    found, raw_text = SEARCH_CACHE[user_id]
     total_pages = (len(found) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
-    
     if page < 1:
         page = 1
     elif page > total_pages:
         page = total_pages
         
-    text = generate_search_text(found, page, total_pages, raw_text)
+    text = generate_search_text(found, page, total_pages, query)
     
     try:
-        await callback.message.edit_text(text, reply_markup=get_search_pagination_keyboard(page, total_pages), parse_mode="HTML")
+        await callback.message.edit_text(text, reply_markup=get_search_pagination_keyboard(query, page, total_pages), parse_mode="HTML")
     except Exception:
         pass
     await callback.answer()

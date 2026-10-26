@@ -18,10 +18,12 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 SPREADSHEET_ID = "1NCrhKX8fafJki5hPEMqMrpotiY6pM5fDYImvBfRE2ts"
 USERS_FILE = "users.txt"
 
+# ⚠️ O‘ZINGIZNING TELEGRAM ID RAQAMingizni shu yerga yozing (masalan: 123456789)
+ADMIN_ID = 917491857  # <--- Shu yerga o'z ID raqamingizni yozing!
+
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# --- Foydalanuvchilarni saqlash va o'qish funksiyalari ---
 def load_users():
     if not os.path.exists(USERS_FILE):
         return set()
@@ -34,14 +36,12 @@ def save_user(user_id):
         with open(USERS_FILE, "a") as f:
             f.write(f"{user_id}\n")
 
-# --- Yordamchi funksiyalar ---
 def normalize(text):
     if not text:
         return ""
     return str(text).lower().replace("‘", "'").replace("’", "'").replace("`", "'").replace("´", "'").strip()
 
 def format_phone(phone_raw):
-    """Telefon raqamini tutash +998XXXXXXXXX formatida qaytaradi (Telegram bosiladigan qilishi uchun)."""
     if not phone_raw or not str(phone_raw).strip():
         return "Kiritilmagan"
     
@@ -106,7 +106,7 @@ def get_keyboard():
 
 @dp.message(CommandStart())
 async def start_cmd(message: types.Message):
-    save_user(message.chat.id) # Foydalanuvchini bazaga saqlaymiz
+    save_user(message.chat.id)
     await message.answer(
         "👋 <b>O‘zbekiston Korxonalar Bazasiga xush kelibsiz!</b>\n\n"
         "Qidiruv uchun korxona nomi, shahar yoki mutaxassislikni yozing yoki tugmalardan birini tanlang:",
@@ -125,13 +125,22 @@ async def help_cmd(message: types.Message):
         parse_mode="HTML"
     )
 
-# --- Ommaviy xabar yuborish (Rassilka) buyrug'i ---
-@dp.message(F.text.startswith("/broadcast "))
+# --- Faqat Admin (Siz) uchun broadcast buyrug'i ---
+@dp.message(F.text.startswith("/broadcast"))
 async def broadcast_cmd(message: types.Message):
-    save_user(message.chat.id)
-    text_to_send = message.text.replace("/broadcast ", "", 1).strip()
+    # Agar yozgan odamning ID raqami siznikiga teng bo'lmasa
+    if message.from_user.id != ADMIN_ID:
+        # Boshqalar yozsa buni oddiy qidiruv deb yuboradi yoki javob bermaydi
+        return 
+
+    text = message.text.strip()
+    if text == "/broadcast":
+        await message.answer("⚠️ Xabar matnini kiriting:\n\n<b>Namuna:</b> <code>/broadcast Salom hammaga!</code>", parse_mode="HTML")
+        return
+
+    text_to_send = text.replace("/broadcast", "", 1).strip()
     if not text_to_send:
-        await message.answer("⚠️ Xabar matnini kiriting: <code>/broadcast Matn</code>", parse_mode="HTML")
+        await message.answer("⚠️ Xabar matni bo‘sh bo‘lishi mumkin emas!", parse_mode="HTML")
         return
 
     users = load_users()
@@ -144,7 +153,7 @@ async def broadcast_cmd(message: types.Message):
         try:
             await bot.send_message(chat_id=int(user_id), text=text_to_send, parse_mode="HTML")
             sent += 1
-            await asyncio.sleep(0.05) # Telegram API chekloviga tushmaslik uchun
+            await asyncio.sleep(0.05)
         except Exception:
             blocked += 1
 
@@ -328,7 +337,6 @@ async def process_search_pagination(callback: types.CallbackQuery):
         pass
     await callback.answer()
 
-# --- Render port binding uchun veb-server ---
 async def handle_ping(request):
     return web.Response(text="Bot is running successfully!")
 

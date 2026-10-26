@@ -19,32 +19,33 @@ SPREADSHEET_ID = "1NCrhKX8fafJki5hPEMqMrpotiY6pM5fDYImvBfRE2ts"
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
+# Qidiruv natijalarini vaqtinchalik saqlash uchun kesh
+SEARCH_CACHE = {}
+
 def normalize(text):
     if not text:
         return ""
     return str(text).lower().replace("‘", "'").replace("’", "'").replace("`", "'").replace("´", "'").strip()
 
-def clean_phone_number(phone_raw):
-    """Telefon raqamini tozalab, tg:// yoki tel: uchun toza +998 formatini qaytaradi."""
+def format_phone(phone_raw):
+    """Telefon raqamini tutash +998XXXXXXXXX formatida qaytaradi (Telegram bosiladigan qilishi uchun)."""
     if not phone_raw or not str(phone_raw).strip():
-        return "", "Kiritilmagan"
+        return "Kiritilmagan"
     
     phone_str = str(phone_raw).strip()
     first_phone = re.split(r'[,;/|\s]{2,}', phone_str)[0]
     clean_digits = re.sub(r"[^\d]", "", first_phone)
     
     if not clean_digits:
-        return "", phone_str
+        return html.escape(phone_str)
 
     if len(clean_digits) >= 9:
         main_9 = clean_digits[-9:]
-        tel_num = f"+998{main_9}"
-        display_num = f"+998 {main_9[0:2]} {main_9[2:5]} {main_9[5:7]} {main_9[7:9]}"
+        display_num = f"+998{main_9}"
     else:
-        tel_num = "+" + clean_digits if not clean_digits.startswith("+") else clean_digits
-        display_num = tel_num
+        display_num = "+" + clean_digits if not clean_digits.startswith("+") else clean_digits
 
-    return tel_num, display_num
+    return html.escape(display_num)
 
 async def fetch_sheet_data():
     url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv"
@@ -110,27 +111,51 @@ async def help_cmd(message: types.Message):
         parse_mode="HTML"
     )
 
-ITEMS_PER_PAGE = 5  # Har bir sahifada 5 tadan chiqsa, tugmalar bilan boshqarish qulay bo'ladi
+ITEMS_PER_PAGE = 10
 
-def get_pagination_keyboard(page, total_pages, enterprises_chunk):
+def get_all_pagination_keyboard(page, total_pages):
     buttons = []
-    
-    # Har bir korxona uchun qo'ng'iroq qilish tugmasini qo'shamiz
-    for idx, c in enumerate(enterprises_chunk, start=1):
-        tel_num, display_num = clean_phone_number(c['phone'])
-        if tel_num:
-            buttons.append([InlineKeyboardButton(text=f"📞 {c['name'][:25]} ({display_num})", url=f"tel:{tel_num}")])
-
-    # Sahifalash tugmalari
-    nav_row = []
+    row = []
     if page > 1:
-        nav_row.append(InlineKeyboardButton(text="⬅️ Orqaga", callback_data=f"page:{page-1}"))
-    nav_row.append(InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="none"))
+        row.append(InlineKeyboardButton(text="⬅️ Orqaga", callback_data=f"all_page:{page-1}"))
+    row.append(InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="none"))
     if page < total_pages:
-        nav_row.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"page:{page+1}"))
-    
-    buttons.append(nav_row)
+        row.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"all_page:{page+1}"))
+    buttons.append(row)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_search_pagination_keyboard(page, total_pages):
+    buttons = []
+    row = []
+    if page > 1:
+        row.append(InlineKeyboardButton(text="⬅️ Orqaga", callback_data=f"search_page:{page-1}"))
+    row.append(InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="none"))
+    if page < total_pages:
+        row.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"search_page:{page+1}"))
+    buttons.append(row)
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def generate_search_text(found, page, total_pages, raw_text):
+    start_idx = (page - 1) * ITEMS_PER_PAGE
+    end_idx = start_idx + ITEMS_PER_PAGE
+    page_records = found[start_idx:end_idx]
+    
+    text = f"🔍 <b>\"{html.escape(raw_text)}\" bo‘yicha topilgan korxonalar ({len(found)} ta) (Sahifa {page}/{total_pages}):</b>\n\n"
+    for i, c in enumerate(page_records, start=start_idx + 1):
+        name = html.escape(c['name'])
+        city = html.escape(c['city'] if c['city'] else 'Kiritilmagan')
+        address = html.escape(c['address'] if c['address'] else 'Kiritilmagan')
+        specialty = html.escape(c['specialty'] if c['specialty'] else 'Kiritilmagan')
+        phone_html = format_phone(c['phone'])
+        
+        text += (
+            f"{i}. 🏢 <b>{name}</b>\n"
+            f"📍 Shahar: {city}\n"
+            f"🏛 Manzil: {address}\n"
+            f"🛠 Mutaxassisligi: {specialty}\n"
+            f"📞 Tel: {phone_html}\n\n"
+        )
+    return text
 
 @dp.message(F.text == "📋 Barcha korxonalar ro‘yxati")
 async def all_enterprises(message: types.Message):
@@ -148,23 +173,13 @@ async def all_enterprises(message: types.Message):
     text = f"📋 <b>Bazada jami {len(records)} ta korxona bor (Sahifa {page}/{total_pages}):</b>\n\n"
     for i, c in enumerate(page_records, start=start_idx + 1):
         name = html.escape(c['name'])
-        city = html.escape(c['city'] if c['city'] else 'Kiritilmagan')
-        address = html.escape(c['address'] if c['address'] else 'Kiritilmagan')
-        specialty = html.escape(c['specialty'] if c['specialty'] else 'Kiritilmagan')
-        _, display_phone = clean_phone_number(c['phone'])
-        
-        text += (
-            f"{i}. 🏢 <b>{name}</b>\n"
-            f"📍 Shahar: {city}\n"
-            f"🏛 Manzil: {address}\n"
-            f"🛠 Mutaxassisligi: {specialty}\n"
-            f"📞 Tel: {html.escape(display_phone)}\n\n"
-        )
+        phone_html = format_phone(c['phone'])
+        text += f"{i}. <b>{name}</b>\n📞 {phone_html}\n\n"
     
-    await message.answer(text, reply_markup=get_pagination_keyboard(page, total_pages, page_records), parse_mode="HTML")
+    await message.answer(text, reply_markup=get_all_pagination_keyboard(page, total_pages), parse_mode="HTML")
 
-@dp.callback_query(F.data.startswith("page:"))
-async def process_pagination(callback: types.CallbackQuery):
+@dp.callback_query(F.data.startswith("all_page:"))
+async def process_all_pagination(callback: types.CallbackQuery):
     page = int(callback.data.split(":")[1])
     records = await fetch_sheet_data()
     if not records:
@@ -184,21 +199,11 @@ async def process_pagination(callback: types.CallbackQuery):
     text = f"📋 <b>Bazada jami {len(records)} ta korxona bor (Sahifa {page}/{total_pages}):</b>\n\n"
     for i, c in enumerate(page_records, start=start_idx + 1):
         name = html.escape(c['name'])
-        city = html.escape(c['city'] if c['city'] else 'Kiritilmagan')
-        address = html.escape(c['address'] if c['address'] else 'Kiritilmagan')
-        specialty = html.escape(c['specialty'] if c['specialty'] else 'Kiritilmagan')
-        _, display_phone = clean_phone_number(c['phone'])
-        
-        text += (
-            f"{i}. 🏢 <b>{name}</b>\n"
-            f"📍 Shahar: {city}\n"
-            f"🏛 Manzil: {address}\n"
-            f"🛠 Mutaxassisligi: {specialty}\n"
-            f"📞 Tel: {html.escape(display_phone)}\n\n"
-        )
+        phone_html = format_phone(c['phone'])
+        text += f"{i}. <b>{name}</b>\n📞 {phone_html}\n\n"
 
     try:
-        await callback.message.edit_text(text, reply_markup=get_pagination_keyboard(page, total_pages, page_records), parse_mode="HTML")
+        await callback.message.edit_text(text, reply_markup=get_all_pagination_keyboard(page, total_pages), parse_mode="HTML")
     except Exception:
         pass
     await callback.answer()
@@ -243,31 +248,39 @@ async def search_handler(message: types.Message):
         await message.answer(f"🔍 <b>\"{html.escape(raw_text)}\" bo‘yicha hech narsa topilmadi.</b>", reply_markup=get_keyboard(), parse_mode="HTML")
         return
         
-    page_records = found[:5] # Qidiruvda ham birinchi 5 tasi va tugmalari chiqadi
-    text = f"🔍 <b>Topilgan korxonalar ({len(found)} ta):</b>\n\n"
-    for i, c in enumerate(page_records, 1):
-        name = html.escape(c['name'])
-        city = html.escape(c['city'] if c['city'] else 'Kiritilmagan')
-        address = html.escape(c['address'] if c['address'] else 'Kiritilmagan')
-        specialty = html.escape(c['specialty'] if c['specialty'] else 'Kiritilmagan')
-        _, display_phone = clean_phone_number(c['phone'])
-        
-        text += (
-            f"{i}. 🏢 <b>{name}</b>\n"
-            f"📍 Shahar: {city}\n"
-            f"🏛 Manzil: {address}\n"
-            f"🛠 Mutaxassisligi: {specialty}\n"
-            f"📞 Tel: {html.escape(display_phone)}\n\n"
-        )
-        
-    # Qidiruv natijalari uchun ham qo'ng'iroq qilish tugmalarini yasaymiz
-    buttons = []
-    for c in page_records:
-        tel_num, display_num = clean_phone_number(c['phone'])
-        if tel_num:
-            buttons.append([InlineKeyboardButton(text=f"📞 {c['name'][:25]} ({display_num})", url=f"tel:{tel_num}")])
+    user_id = message.from_user.id
+    SEARCH_CACHE[user_id] = (found, raw_text)
     
-    await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
+    total_pages = (len(found) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+    page = 1
+    
+    text = generate_search_text(found, page, total_pages, raw_text)
+    await message.answer(text, reply_markup=get_search_pagination_keyboard(page, total_pages), parse_mode="HTML")
+
+@dp.callback_query(F.data.startswith("search_page:"))
+async def process_search_pagination(callback: types.CallbackQuery):
+    page = int(callback.data.split(":")[1])
+    user_id = callback.from_user.id
+    
+    if user_id not in SEARCH_CACHE:
+        await callback.answer("Ma'lumot eskirgan, qaytadan qidirib ko'ring.", show_alert=True)
+        return
+        
+    found, raw_text = SEARCH_CACHE[user_id]
+    total_pages = (len(found) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+    
+    if page < 1:
+        page = 1
+    elif page > total_pages:
+        page = total_pages
+        
+    text = generate_search_text(found, page, total_pages, raw_text)
+    
+    try:
+        await callback.message.edit_text(text, reply_markup=get_search_pagination_keyboard(page, total_pages), parse_mode="HTML")
+    except Exception:
+        pass
+    await callback.answer()
 
 async def main():
     logging.basicConfig(level=logging.INFO)

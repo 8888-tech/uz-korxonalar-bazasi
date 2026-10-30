@@ -1,3 +1,4 @@
+cat << 'EOF' > main.py
 import os
 import asyncio
 import logging
@@ -127,7 +128,7 @@ async def help_cmd(message: types.Message):
 @dp.message(F.text.startswith("/broadcast"))
 async def broadcast_cmd(message: types.Message):
     if message.from_user.id != ADMIN_ID:
-        return  
+        return   
 
     text = message.text.strip()
     if text == "/broadcast":
@@ -166,10 +167,10 @@ def get_all_pagination_keyboard(page, total_pages):
     buttons = []
     row = []
     if page > 1:
-        row.append(InlineKeyboardButton(text="⬅ Orqaga", callback_data=f"all_page:{page-1}"))
+        row.append(InlineKeyboardButton(text="⬅️ Orqaga", callback_data=f"all_page:{page-1}"))
     row.append(InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="none"))
     if page < total_pages:
-        row.append(InlineKeyboardButton(text="Keyingi ➡", callback_data=f"all_page:{page+1}"))
+        row.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"all_page:{page+1}"))
     buttons.append(row)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -177,17 +178,17 @@ def get_search_pagination_keyboard(query, page, total_pages):
     buttons = []
     row = []
     if page > 1:
-        row.append(InlineKeyboardButton(text="⬅ Orqaga", callback_data=f"srch:{query}:{page-1}"))
+        row.append(InlineKeyboardButton(text="⬅️ Orqaga", callback_data=f"srch:{query}:{page-1}"))
     row.append(InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="none"))
     if page < total_pages:
-        row.append(InlineKeyboardButton(text="Keyingi ➡", callback_data=f"srch:{query}:{page+1}"))
+        row.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"srch:{query}:{page+1}"))
     buttons.append(row)
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def filter_records(records, query):
     regions = [
-        "toshkent shahri", "toshkent viloyati", "andijon", "farg'ona",  
-        "namangan", "samarqand", "buxoro", "xorazm", "qashqadaryo",  
+        "toshkent shahri", "toshkent viloyati", "andijon", "farg'ona",   
+        "namangan", "samarqand", "buxoro", "xorazm", "qashqadaryo",   
         "surxondaryo", "jizzax", "sirdaryo", "navoiy", "qoraqalpog'iston"
     ]
     found = []
@@ -333,6 +334,22 @@ async def process_search_pagination(callback: types.CallbackQuery):
         pass
     await callback.answer()
 
+# --- Render uxlab qolmasligi uchun Self-Ping funksiyasi ---
+async def self_ping():
+    await asyncio.sleep(15)
+    app_url = os.environ.get("RENDER_EXTERNAL_URL")
+    if not app_url:
+        return
+    
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                async with session.get(app_url) as resp:
+                    pass
+            except Exception:
+                pass
+            await asyncio.sleep(300)  # Har 5 daqiqada (300 sek) so'rov yuboradi
+
 async def handle_ping(request):
     return web.Response(text="Bot is running successfully!")
 
@@ -350,7 +367,9 @@ async def main():
     print("Bot ishga tushmoqda...")
     await bot.delete_webhook(drop_pending_updates=True)
     await start_web_server()
+    asyncio.create_task(self_ping())
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
+EOF

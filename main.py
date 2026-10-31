@@ -1,4 +1,3 @@
-cat << 'EOF' > main.py
 import os
 import asyncio
 import logging
